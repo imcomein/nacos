@@ -100,10 +100,13 @@ public class InstanceControllerV2 {
     public Result<String> register(InstanceForm instanceForm) throws NacosException {
         // check param
         instanceForm.validate();
+        // 计算比重 异常比重直接异常
         checkWeight(instanceForm.getWeight());
         // build instance
         Instance instance = buildInstance(instanceForm);
+        // 进行实例注册
         instanceServiceV2.registerInstance(instanceForm.getNamespaceId(), buildCompositeServiceName(instanceForm), instance);
+        // 注册事件通知
         NotifyCenter.publishEvent(new RegisterInstanceTraceEvent(System.currentTimeMillis(), "",
                 false, instanceForm.getNamespaceId(), instanceForm.getGroupName(), instanceForm.getServiceName(),
                 instance.getIp(), instance.getPort()));

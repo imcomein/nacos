@@ -43,11 +43,11 @@ public class NamingExample {
         Properties properties = new Properties();
         properties.setProperty("serverAddr", System.getProperty("serverAddr", "localhost"));
         properties.setProperty("namespace", System.getProperty("namespace", "public"));
-        
+        // 客户端启动处理
         NamingService naming = NamingFactory.createNamingService(properties);
-        
+        // 服务注册
         naming.registerInstance("nacos.test.3", "11.11.11.11", 8888, "TEST1");
-        
+        // 服务发现
         System.out.println("instances after register: " + naming.getAllInstances("nacos.test.3"));
         
         Executor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(),
@@ -56,7 +56,7 @@ public class NamingExample {
                     thread.setName("test-thread");
                     return thread;
                 });
-        
+        // 服务订阅
         naming.subscribe("nacos.test.3", new AbstractEventListener() {
             
             //EventListener onEvent is sync to handle, If process too low in onEvent, maybe block other onEvent callback.
@@ -72,7 +72,7 @@ public class NamingExample {
                 System.out.println("instances from event: " + ((NamingEvent) event).getInstances());
             }
         });
-    
+        // 服务下线
         naming.deregisterInstance("nacos.test.3", "11.11.11.11", 8888, "TEST1");
         
         Thread.sleep(1000);

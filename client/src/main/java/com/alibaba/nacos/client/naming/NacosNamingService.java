@@ -87,17 +87,22 @@ public class NacosNamingService implements NamingService {
     
     private void init(Properties properties) throws NacosException {
         final NacosClientProperties nacosClientProperties = NacosClientProperties.PROTOTYPE.derive(properties);
-        
+        // 校验contextPath
         ValidatorUtils.checkInitParam(nacosClientProperties);
+        // 获取命名空间，可以通过System.setProperty和Properties设置命名空间，默认为public
         this.namespace = InitUtils.initNamespaceForNaming(nacosClientProperties);
         InitUtils.initSerialization();
+        // 设置web root context
         InitUtils.initWebRootContext(nacosClientProperties);
+        // 自定义日志名称，可以通过properties指定名称，默认为naming.log
         initLogName(nacosClientProperties);
-    
+
+        // 处理 订阅没有相互隔离
         this.notifierEventScope = UUID.randomUUID().toString();
         this.changeNotifier = new InstancesChangeNotifier(this.notifierEventScope);
         NotifyCenter.registerToPublisher(InstancesChangeEvent.class, 16384);
         NotifyCenter.registerSubscriber(changeNotifier);
+        // 信息生成 故障转移
         this.serviceInfoHolder = new ServiceInfoHolder(namespace, this.notifierEventScope, nacosClientProperties);
         this.clientProxy = new NamingClientProxyDelegate(this.namespace, serviceInfoHolder, nacosClientProperties, changeNotifier);
     }
@@ -140,6 +145,7 @@ public class NacosNamingService implements NamingService {
     @Override
     public void registerInstance(String serviceName, String groupName, Instance instance) throws NacosException {
         NamingUtils.checkInstanceIsLegal(instance);
+        // 默认走grpc
         clientProxy.registerService(serviceName, groupName, instance);
     }
     
@@ -235,12 +241,16 @@ public class NacosNamingService implements NamingService {
             boolean subscribe) throws NacosException {
         ServiceInfo serviceInfo;
         String clusterString = StringUtils.join(clusters, ",");
+        // 判断是否订阅服务
         if (subscribe) {
+            // 先从客户端缓存获取服务信息
             serviceInfo = serviceInfoHolder.getServiceInfo(serviceName, groupName, clusterString);
             if (null == serviceInfo || !clientProxy.isSubscribed(serviceName, groupName, clusterString)) {
+                // 本地没有就进行订阅
                 serviceInfo = clientProxy.subscribe(serviceName, groupName, clusterString);
             }
         } else {
+            // 服务端查询
             serviceInfo = clientProxy.queryInstancesOfService(serviceName, groupName, clusterString, 0, false);
         }
         List<Instance> list;
@@ -402,6 +412,7 @@ public class NacosNamingService implements NamingService {
         }
         String clusterString = StringUtils.join(clusters, ",");
         changeNotifier.registerListener(groupName, serviceName, clusterString, listener);
+        // 服务订阅
         clientProxy.subscribe(serviceName, groupName, clusterString);
     }
     

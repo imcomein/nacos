@@ -69,12 +69,24 @@ public class ServiceInfoHolder implements Closeable {
     private String notifierEventScope;
     
     public ServiceInfoHolder(String namespace, String notifierEventScope, NacosClientProperties properties) {
+        // 生成缓存目录：默认为${user.home}/nacos/naming/public，
+        // 可以通过System.setProperty("JM.SNAPSHOT.PATH")自定义根目录
         initCacheDir(namespace, properties);
+        // 启动时是否从缓存目录读取信息，默认false。设置为true会读取缓存文件
         if (isLoadCacheAtStart(properties)) {
             this.serviceInfoMap = new ConcurrentHashMap<>(DiskCache.read(this.cacheDir));
         } else {
             this.serviceInfoMap = new ConcurrentHashMap<>(16);
         }
+        // 故障转移相关，故障转移目录：${user.home}/nacos/naming/public/failover
+        // 故障转移开关文件：${user.home}/nacos/naming/public/failover/00-00---000-VIPSRV_FAILOVER_SWITCH-000---00-00
+        // 故障转移关闭：当故障转移开关文件不存在时或者文件的值为0
+        // 故障转移开启：当故障转移开关文件存在时或者文件的值为1
+        // 故障转移检查：延迟5秒将缓存文件ServiceInfo信息读入缓存（由FailoverReactor#SwitchRefresher负责）
+        // 当故障转移开关开启，更新缓存switchParams.put("failover-mode", "true")，
+        // 同时启动FailoverFileReader线程读取目录failover文件ServiceInfo内容。
+        // 例如：DEFAULT_GROUP%40%40nacos.test.3，这些信息被读入到内存Map<String, ServiceInfo> serviceMap中。
+        // 故障数据备份：每10秒钟备份一次（FailoverReactor#DiskFileWriter），会把ServiceInfo即上面json内容备份到文件中。
         this.failoverReactor = new FailoverReactor(this, cacheDir);
         this.pushEmptyProtection = isPushEmptyProtect(properties);
         this.notifierEventScope = notifierEventScope;
@@ -155,21 +167,26 @@ public class ServiceInfoHolder implements Closeable {
             return null;
         }
         ServiceInfo oldService = serviceInfoMap.get(serviceInfo.getKey());
+        // 如果拉取到的service信息有问题就返回旧的
         if (isEmptyOrErrorPush(serviceInfo)) {
             //empty or error push, just ignore
             return oldService;
         }
         serviceInfoMap.put(serviceInfo.getKey(), serviceInfo);
+        // 判断新旧信息是否有变化
         boolean changed = isChangedServiceInfo(oldService, serviceInfo);
         if (StringUtils.isBlank(serviceInfo.getJsonFromServer())) {
             serviceInfo.setJsonFromServer(JacksonUtils.toJson(serviceInfo));
         }
+        // 通过prometheus 监控服务Map大小
         MetricsMonitor.getServiceInfoMapSizeMonitor().set(serviceInfoMap.size());
         if (changed) {
             NAMING_LOGGER.info("current ips:({}) service: {} -> {}", serviceInfo.ipCount(), serviceInfo.getKey(),
                     JacksonUtils.toJson(serviceInfo.getHosts()));
+            // 添加实例变更事件
             NotifyCenter.publishEvent(new InstancesChangeEvent(notifierEventScope, serviceInfo.getName(), serviceInfo.getGroupName(),
                     serviceInfo.getClusters(), serviceInfo.getHosts()));
+            // 记录本地磁盘文件
             DiskCache.write(serviceInfo, cacheDir);
         }
         return serviceInfo;
@@ -180,11 +197,13 @@ public class ServiceInfoHolder implements Closeable {
     }
     
     private boolean isChangedServiceInfo(ServiceInfo oldService, ServiceInfo newService) {
+        // 如果旧数据为null，则需要变更
         if (null == oldService) {
             NAMING_LOGGER.info("init new ips({}) service: {} -> {}", newService.ipCount(), newService.getKey(),
                     JacksonUtils.toJson(newService.getHosts()));
             return true;
         }
+        // 如果旧数据更新时间大于新数据更新时间，则打印警告日志
         if (oldService.getLastRefTime() > newService.getLastRefTime()) {
             NAMING_LOGGER.warn("out of date data received, old-t: {}, new-t: {}", oldService.getLastRefTime(),
                     newService.getLastRefTime());
@@ -199,9 +218,11 @@ public class ServiceInfoHolder implements Closeable {
         for (Instance host : newService.getHosts()) {
             newHostMap.put(host.toInetAddr(), host);
         }
-        
+        // 变更的实例集合
         Set<Instance> modHosts = new HashSet<>();
+        // 新增的实例集合
         Set<Instance> newHosts = new HashSet<>();
+        // 删除的实例集合
         Set<Instance> remvHosts = new HashSet<>();
         
         List<Map.Entry<String, Instance>> newServiceHosts = new ArrayList<>(

@@ -51,7 +51,7 @@ public class InitUtils {
      */
     public static String initNamespaceForNaming(NacosClientProperties properties) {
         String tmpNamespace = null;
-        
+        // 阿里云上也提供注册发现产品服务，兼容云上的命名空间设置
         String isUseCloudNamespaceParsing = properties.getProperty(PropertyKeyConst.IS_USE_CLOUD_NAMESPACE_PARSING,
                 properties.getProperty(SystemPropertyKeyConst.IS_USE_CLOUD_NAMESPACE_PARSING,
                         String.valueOf(Constants.DEFAULT_USE_CLOUD_NAMESPACE_PARSING)));
@@ -67,17 +67,19 @@ public class InitUtils {
                 return namespace;
             });
         }
-        
+
+        // 非阿里云注册产品，使用自定义的
+        // 获取服务启动设置的namespace
         tmpNamespace = TemplateUtils.stringEmptyAndThenExecute(tmpNamespace, () -> {
             String namespace = properties.getPropertyFrom(SourceType.JVM, PropertyKeyConst.NAMESPACE);
             LogUtils.NAMING_LOGGER.info("initializer namespace from namespace attribute :" + namespace);
             return namespace;
         });
-    
+        // 也可以通过properties获取namespace
         if (StringUtils.isEmpty(tmpNamespace)) {
             tmpNamespace = properties.getProperty(PropertyKeyConst.NAMESPACE);
         }
-        
+        // 如果System.getProperty和Properties都没有设置命名空间，使用默认的public
         tmpNamespace = TemplateUtils.stringEmptyAndThenExecute(tmpNamespace, () -> UtilAndComs.DEFAULT_NAMESPACE_ID);
         return tmpNamespace;
     }

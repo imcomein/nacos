@@ -50,7 +50,7 @@ public class ServiceInfoUpdateService implements Closeable {
     private static final long DEFAULT_DELAY = 1000L;
     
     private static final int DEFAULT_UPDATE_CACHE_TIME_MULTIPLE = 6;
-    
+    // 持有调度任务的句柄
     private final Map<String, ScheduledFuture<?>> futureMap = new HashMap<>();
     
     private final ServiceInfoHolder serviceInfoHolder;
@@ -66,6 +66,7 @@ public class ServiceInfoUpdateService implements Closeable {
     public ServiceInfoUpdateService(NacosClientProperties properties, ServiceInfoHolder serviceInfoHolder,
             NamingClientProxy namingClientProxy, InstancesChangeNotifier changeNotifier) {
         this.asyncQuerySubscribeService = isAsyncQueryForSubscribeService(properties);
+        // 定时任务调度执行器，线程池大小为处理器核数的一半，可以通过参数"namingPollingThreadCount”指定;
         this.executor = new ScheduledThreadPoolExecutor(initPollingThreadCount(properties),
                 new NameThreadFactory("com.alibaba.nacos.client.naming.updater"));
         this.serviceInfoHolder = serviceInfoHolder;
@@ -114,6 +115,7 @@ public class ServiceInfoUpdateService implements Closeable {
     }
     
     private synchronized ScheduledFuture<?> addTask(UpdateTask task) {
+        // 延迟一秒执行
         return executor.schedule(task, DEFAULT_DELAY, TimeUnit.MILLISECONDS);
     }
     
@@ -185,17 +187,19 @@ public class ServiceInfoUpdateService implements Closeable {
                     isCancel = true;
                     return;
                 }
-                
+                // 查询缓存service信息
                 ServiceInfo serviceObj = serviceInfoHolder.getServiceInfoMap().get(serviceKey);
                 if (serviceObj == null) {
+                    // 从服务端获取service信息
                     serviceObj = namingClientProxy.queryInstancesOfService(serviceName, groupName, clusters, 0, false);
                     serviceInfoHolder.processServiceInfo(serviceObj);
                     lastRefTime = serviceObj.getLastRefTime();
                     return;
                 }
-                
+                // 过期服务（服务的最新更新时间小于等于缓存刷新时间），从注册中心重新查询
                 if (serviceObj.getLastRefTime() <= lastRefTime) {
                     serviceObj = namingClientProxy.queryInstancesOfService(serviceName, groupName, clusters, 0, false);
+                    // 处理Service消息
                     serviceInfoHolder.processServiceInfo(serviceObj);
                 }
                 lastRefTime = serviceObj.getLastRefTime();
@@ -204,7 +208,9 @@ public class ServiceInfoUpdateService implements Closeable {
                     return;
                 }
                 // TODO multiple time can be configured.
+                // 下次更新时间 默认改为6秒
                 delayTime = serviceObj.getCacheMillis() * DEFAULT_UPDATE_CACHE_TIME_MULTIPLE;
+                // 重置失败次数为0
                 resetFailCount();
             } catch (NacosException e) {
                 handleNacosException(e);

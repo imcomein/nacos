@@ -123,7 +123,9 @@ public class NamingGrpcClientProxy extends AbstractNamingClientProxy {
     public void registerService(String serviceName, String groupName, Instance instance) throws NacosException {
         NAMING_LOGGER.info("[REGISTER-SERVICE] {} registering service {} with instance {}", namespaceId, serviceName,
                 instance);
+        // 以组名和服务名为key 缓存实例
         redoService.cacheInstanceForRedo(serviceName, groupName, instance);
+        // 正式开始注册服务
         doRegisterService(serviceName, groupName, instance);
     }
     
@@ -208,9 +210,12 @@ public class NamingGrpcClientProxy extends AbstractNamingClientProxy {
      * @throws NacosException nacos exception
      */
     public void doRegisterService(String serviceName, String groupName, Instance instance) throws NacosException {
+        // 组装实例请求参数
         InstanceRequest request = new InstanceRequest(namespaceId, serviceName, groupName,
                 NamingRemoteConstants.REGISTER_INSTANCE, instance);
+        // 执行注册操作 失败直接报错
         requestToServer(request, Response.class);
+        // 标记实例信息
         redoService.instanceRegistered(serviceName, groupName);
     }
     
@@ -295,6 +300,7 @@ public class NamingGrpcClientProxy extends AbstractNamingClientProxy {
         if (NAMING_LOGGER.isDebugEnabled()) {
             NAMING_LOGGER.debug("[GRPC-SUBSCRIBE] service:{}, group:{}, cluster:{} ", serviceName, groupName, clusters);
         }
+        // 缓存订阅任务
         redoService.cacheSubscriberForRedo(serviceName, groupName, clusters);
         return doSubscribe(serviceName, groupName, clusters);
     }
@@ -311,7 +317,9 @@ public class NamingGrpcClientProxy extends AbstractNamingClientProxy {
     public ServiceInfo doSubscribe(String serviceName, String groupName, String clusters) throws NacosException {
         SubscribeServiceRequest request = new SubscribeServiceRequest(namespaceId, groupName, serviceName, clusters,
                 true);
+        // 请求拉取实例信息
         SubscribeServiceResponse response = requestToServer(request, SubscribeServiceResponse.class);
+        // 设置缓存中实例的注册状态
         redoService.subscriberRegistered(serviceName, groupName, clusters);
         return response.getServiceInfo();
     }
